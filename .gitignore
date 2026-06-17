@@ -1,0 +1,60 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# PyCharm
+.idea/
+*.iml
+*.iws
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# 数据集（太大，不纳入版本控制）
+data/
+
+# 数据集压缩包
+*.tar
+*.zip
+
+# 训练日志和临时文件
+runs/train/tb_logs/
+*.log
+logs/
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 虚拟环境
+venv/
+env/
+ENV/
+
+# Office 临时文件
+~$*
+~*.pptx
+~*.docx
+
+# 模型权重文件 - 使用 Git LFS 管理
+# 单独 unignore（!）规则放在最后
+!model_weights.pt
+!comparison_results.png
