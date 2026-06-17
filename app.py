@@ -152,22 +152,7 @@ ARTICLE = """
 
 def create_ui():
     """创建 Gradio 界面"""
-    with gr.Blocks(
-        title="目标检测系统 - YOLOv8",
-        theme=gr.themes.Soft(
-            primary_hue="blue",
-            secondary_hue="indigo",
-            neutral_hue="slate",
-            font=[gr.themes.GoogleFont("Noto Sans SC"), "Arial", "sans-serif"],
-        ),
-        css="""
-        .output-image img {
-            max-height: 600px;
-            object-fit: contain;
-        }
-        footer { visibility: hidden }
-        """,
-    ) as demo:
+    with gr.Blocks(title="目标检测系统 - YOLOv8") as demo:
         gr.Markdown(TITLE)
 
         with gr.Row():
@@ -257,4 +242,16 @@ if __name__ == '__main__':
         server_port=7860,
         share=False,
         show_error=True,
+        theme=gr.themes.Soft(
+            primary_hue="blue",
+            secondary_hue="indigo",
+            neutral_hue="slate",
+        ),
+        css="""
+        .output-image img {
+            max-height: 600px;
+            object-fit: contain;
+        }
+        footer { visibility: hidden }
+        """,
     )
