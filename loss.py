@@ -162,7 +162,7 @@ class YOLOLoss(nn.Module):
                 continue
             
             # 匹配目标到当前特征层
-            matched_targets = self._match_targets(targets, i, nx, ny, device)
+            matched_targets = self._match_targets(targets, i, nx, ny, device, batch_size)
             
             if matched_targets is None:
                 obj_target = torch.zeros_like(pred[..., 4])
@@ -199,7 +199,7 @@ class YOLOLoss(nn.Module):
             'obj_loss': l_obj
         }
     
-    def _match_targets(self, targets, layer_idx, nx, ny, device):
+    def _match_targets(self, targets, layer_idx, nx, ny, device, batch_size=1):
         """
         将目标匹配到特征层
         简化的实现，实际应使用更复杂的分配策略
@@ -221,8 +221,11 @@ class YOLOLoss(nn.Module):
         for t in targets:
             if len(t) == 6:
                 img_idx, cls, x, y, w, h = t
+            elif len(t) == 5:
+                # 回退: [class, x, y, w, h] 无 batch_idx，假设 img_idx=0
+                cls, x, y, w, h = t
+                img_idx = 0
             else:
-                # 如果目标只有5个值 [class, x, y, w, h]，跳过
                 continue
             
             # 计算目标大小（相对于特征图）
@@ -254,7 +257,7 @@ class YOLOLoss(nn.Module):
             'target_boxes': torch.zeros((len(matched), 4), device=device),
             'target_cls': torch.zeros(len(matched), dtype=torch.long, device=device),
             'pred_cls': torch.zeros((len(matched), self.num_classes), device=device),
-            'obj_mask': torch.zeros((len(targets), 3, ny, nx), dtype=torch.bool, device=device)
+            'obj_mask': torch.zeros((batch_size, 3, ny, nx), dtype=torch.bool, device=device)
         }
         
         for i, m in enumerate(matched):

@@ -248,17 +248,25 @@ class VOCDataset(Dataset):
 def collate_fn(batch):
     """自定义批处理函数"""
     images, targets = zip(*batch)
-    
+
     # 堆叠图像
     images = torch.stack(images, 0)
-    
-    # 添加图像索引到目标
+
+    # 为每个 target 添加 batch index（修复：之前覆盖了 class_id）
+    new_targets = []
     for i, target in enumerate(targets):
         if len(target) > 0:
-            target[:, 0] = i  # 设置图像索引
-    
-    targets = torch.cat(targets, 0) if targets else torch.zeros((0, 6))
-    
+            # target 格式: [class, x_center, y_center, width, height]
+            # 添加 batch index 作为第一列 → [batch_idx, class, x, y, w, h]
+            batch_idx = torch.full((len(target), 1), i, dtype=target.dtype)
+            target_with_idx = torch.cat([batch_idx, target], dim=1)
+            new_targets.append(target_with_idx)
+
+    if new_targets:
+        targets = torch.cat(new_targets, 0)
+    else:
+        targets = torch.zeros((0, 6))
+
     return images, targets
 
 

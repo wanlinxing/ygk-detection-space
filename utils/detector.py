@@ -1,265 +1,114 @@
 """
 目标检测器模块
-加载训练好的 YOLOv8 模型，提供图片推理和结果解码功能
+基于 ultralytics YOLOv8 预训练模型 (COCO 80类)
 """
 
-import torch
-import torch.nn.functional as F
 import numpy as np
 import cv2
+from ultralytics import YOLO
 import os
-import sys
 
-# 将项目根目录加入 path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from config import DATASET_CONFIG, MODEL_CONFIG, TEST_CONFIG
-from model import build_model
+# COCO 数据集 80 类中文名称映射
+COCO_CLASSES_ZH = {
+    0: '人', 1: '自行车', 2: '汽车', 3: '摩托车', 4: '飞机',
+    5: '公交车', 6: '火车', 7: '卡车', 8: '船', 9: '红绿灯',
+    10: '消火栓', 11: '停车标志', 12: '停车计时器', 13: '长椅', 14: '鸟',
+    15: '猫', 16: '狗', 17: '马', 18: '羊', 19: '牛',
+    20: '大象', 21: '熊', 22: '斑马', 23: '长颈鹿', 24: '背包',
+    25: '雨伞', 26: '手提包', 27: '领带', 28: '行李箱', 29: '飞盘',
+    30: '滑雪板', 31: '雪板', 32: '球', 33: '风筝', 34: '棒球棒',
+    35: '手套', 36: '滑板', 37: '冲浪板', 38: '网球拍', 39: '瓶子',
+    40: '酒杯', 41: '杯子', 42: '叉子', 43: '刀', 44: '勺子',
+    45: '碗', 46: '香蕉', 47: '苹果', 48: '三明治', 49: '橙子',
+    50: '西兰花', 51: '胡萝卜', 52: '热狗', 53: '披萨', 54: '甜甜圈',
+    55: '蛋糕', 56: '椅子', 57: '沙发', 58: '盆栽', 59: '床',
+    60: '餐桌', 61: '马桶', 62: '显示器', 63: '笔记本', 64: '鼠标',
+    65: '遥控器', 66: '键盘', 67: '手机', 68: '微波炉', 69: '烤箱',
+    70: '烤面包机', 71: '水槽', 72: '冰箱', 73: '书', 74: '钟',
+    75: '花瓶', 76: '剪刀', 77: '泰迪熊', 78: '吹风机', 79: '牙刷'
+}
+
+COCO_CLASSES_EN = {
+    0: 'person', 1: 'bicycle', 2: 'car', 3: 'motorcycle', 4: 'airplane',
+    5: 'bus', 6: 'train', 7: 'truck', 8: 'boat', 9: 'traffic light',
+    10: 'fire hydrant', 11: 'stop sign', 12: 'parking meter', 13: 'bench', 14: 'bird',
+    15: 'cat', 16: 'dog', 17: 'horse', 18: 'sheep', 19: 'cow',
+    20: 'elephant', 21: 'bear', 22: 'zebra', 23: 'giraffe', 24: 'backpack',
+    25: 'umbrella', 26: 'handbag', 27: 'tie', 28: 'suitcase', 29: 'frisbee',
+    30: 'skis', 31: 'snowboard', 32: 'sports ball', 33: 'kite', 34: 'baseball bat',
+    35: 'baseball glove', 36: 'skateboard', 37: 'surfboard', 38: 'tennis racket', 39: 'bottle',
+    40: 'wine glass', 41: 'cup', 42: 'fork', 43: 'knife', 44: 'spoon',
+    45: 'bowl', 46: 'banana', 47: 'apple', 48: 'sandwich', 49: 'orange',
+    50: 'broccoli', 51: 'carrot', 52: 'hot dog', 53: 'pizza', 54: 'donut',
+    55: 'cake', 56: 'chair', 57: 'couch', 58: 'potted plant', 59: 'bed',
+    60: 'dining table', 61: 'toilet', 62: 'tv', 63: 'laptop', 64: 'mouse',
+    65: 'remote', 66: 'keyboard', 67: 'cell phone', 68: 'microwave', 69: 'oven',
+    70: 'toaster', 71: 'sink', 72: 'refrigerator', 73: 'book', 74: 'clock',
+    75: 'vase', 76: 'scissors', 77: 'teddy bear', 78: 'hair drier', 79: 'toothbrush'
+}
 
 
 class Detector:
-    """YOLOv8 目标检测器"""
+    """YOLOv8 目标检测器（使用 ultralytics 预训练模型）"""
 
-    def __init__(self, weights_path=None, device=None):
+    def __init__(self, model_name='yolov8n.pt', device=None):
         """
         初始化检测器
 
         Args:
-            weights_path: 模型权重路径
+            model_name: 模型名称或路径
+                - 'yolov8n.pt'  Nano (最快, ~6MB)
+                - 'yolov8s.pt'  Small (~22MB)
+                - 'yolov8m.pt'  Medium (~52MB)
             device: 推理设备 ('cuda', 'cpu', 或 None 自动选择)
         """
-        if device is None:
-            self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        else:
-            self.device = torch.device(device)
-
+        self.device = device or ('cuda' if cv2.cuda.getCudaEnabledDeviceCount() > 0 else 'cpu')
         print(f"[INFO] 使用设备: {self.device}")
 
-        self.num_classes = DATASET_CONFIG['num_classes']
-        self.class_names = DATASET_CONFIG['classes']
-        self.input_size = DATASET_CONFIG['image_size']  # 416
-        self.anchors = MODEL_CONFIG['anchors']
-        self.strides = [8, 16, 32]  # P3, P4, P5 对应的 stride
-
-        # 为每个尺度生成 anchor grid
-        self.anchor_grids = self._make_anchor_grids()
-
-        # 构建模型
-        self.model = build_model(num_classes=self.num_classes)
-
-        # 加载权重
-        if weights_path and os.path.exists(weights_path):
-            checkpoint = torch.load(weights_path, map_location=self.device, weights_only=False)
-            if 'model_state_dict' in checkpoint:
-                self.model.load_state_dict(checkpoint['model_state_dict'])
-            else:
-                self.model.load_state_dict(checkpoint, strict=False)
-            print(f"[INFO] 已加载权重: {weights_path}")
+        # 加载模型
+        # 优先使用本地模型文件，否则尝试从镜像下载
+        local_model = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'models', model_name)
+        if os.path.exists(local_model):
+            model_name = local_model
+        elif os.path.exists(model_name):
+            pass  # 使用用户指定的路径
         else:
-            print("[WARN] 未加载预训练权重，检测结果可能不准确")
+            # 尝试从 Hugging Face 镜像下载
+            print(f"[INFO] 本地模型不存在，尝试从镜像下载: {model_name}")
+            try:
+                os.environ.setdefault('HF_ENDPOINT', 'https://hf-mirror.com')
+                from huggingface_hub import hf_hub_download
+                model_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'models')
+                os.makedirs(model_dir, exist_ok=True)
+                downloaded = hf_hub_download(
+                    repo_id='Ultralytics/YOLOv8',
+                    filename=model_name,
+                    local_dir=model_dir,
+                )
+                model_name = downloaded
+                print(f"[INFO] 模型下载成功: {model_name}")
+            except Exception as e:
+                print(f"[WARN] 镜像下载失败: {e}，将尝试 ultralytics 默认下载")
 
-        self.model.to(self.device)
-        self.model.eval()
+        self.model_path = model_name
+        self.model = YOLO(model_name)
+
+        # 类别信息
+        self.class_names_en = COCO_CLASSES_EN
+        self.class_names_zh = COCO_CLASSES_ZH
+        self.class_names = [f"{COCO_CLASSES_EN[i]} ({COCO_CLASSES_ZH[i]})" for i in range(80)]
+        self.num_classes = 80
+        self.class_names_en_only = [COCO_CLASSES_EN[i] for i in range(80)]
 
         # 为每个类别生成颜色
         np.random.seed(42)
-        self.colors = np.random.randint(0, 255, size=(self.num_classes, 3), dtype=np.uint8).tolist()
+        self.colors = np.random.randint(50, 255, size=(self.num_classes, 3), dtype=np.uint8).tolist()
 
-    def _make_anchor_grids(self):
-        """构建 anchor grids"""
-        anchor_grids = []
-        for i, stride in enumerate(self.strides):
-            grid_h = self.input_size // stride
-            grid_w = self.input_size // stride
-            anchors = torch.tensor(self.anchors[i], dtype=torch.float32).view(3, 2)
-            anchor_grids.append({
-                'anchors': anchors,
-                'grid_h': grid_h,
-                'grid_w': grid_w,
-                'stride': stride,
-            })
-        return anchor_grids
+        print(f"[INFO] 模型加载完成: {model_name}")
+        print(f"[INFO] 类别数量: {self.num_classes} (COCO)")
 
-    def preprocess(self, image):
-        """
-        预处理图片
-
-        Args:
-            image: numpy array (H, W, 3) BGR or RGB
-
-        Returns:
-            image_tensor: (1, 3, 416, 416)
-            original_shape: (H, W) of original image
-            scale_info: (scale, pad_x, pad_y)
-        """
-        if image is None:
-            raise ValueError("输入图片为空")
-
-        h, w = image.shape[:2]
-
-        # 计算缩放比例（保持宽高比）
-        scale = min(self.input_size / h, self.input_size / w)
-        new_h, new_w = int(h * scale), int(w * scale)
-
-        # 缩放图片
-        resized = cv2.resize(image, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
-
-        # 填充到 target_size x target_size
-        padded = np.full((self.input_size, self.input_size, 3), 114, dtype=np.uint8)
-        pad_y = (self.input_size - new_h) // 2
-        pad_x = (self.input_size - new_w) // 2
-        padded[pad_y:pad_y + new_h, pad_x:pad_x + new_w] = resized
-
-        # 归一化并转换为 tensor
-        image_tensor = torch.from_numpy(padded.astype(np.float32) / 255.0)
-        image_tensor = image_tensor.permute(2, 0, 1).unsqueeze(0)  # (1, 3, 416, 416)
-
-        return image_tensor, (h, w), (scale, pad_x, pad_y)
-
-    def _decode_outputs(self, predictions):
-        """
-        解码 YOLO 模型输出
-
-        Args:
-            predictions: list of 3 tensors [B, 3*25, H, W]
-
-        Returns:
-            boxes: (N, 4) [x1, y1, x2, y2] in 416x416 space
-            scores: (N,)
-            class_ids: (N,)
-        """
-        all_boxes = []
-        all_scores = []
-        all_class_ids = []
-
-        for i, pred in enumerate(predictions):
-            B, C, H, W = pred.shape
-            num_anchors = 3
-            num_outputs = self.num_classes + 5  # 25
-
-            # Reshape: [B, 3*25, H, W] -> [B, 3, 25, H, W] -> [B, 3, H, W, 25]
-            pred = pred.view(B, num_anchors, num_outputs, H, W)
-            pred = pred.permute(0, 1, 3, 4, 2).contiguous()  # [B, 3, H, W, 25]
-
-            stride = self.strides[i]
-            anchor = self.anchor_grids[i]['anchors'].to(self.device)  # [3, 2]
-
-            # 生成网格坐标
-            grid_y, grid_x = torch.meshgrid(
-                torch.arange(H, device=self.device),
-                torch.arange(W, device=self.device),
-                indexing='ij'
-            )
-
-            # 解码 x, y
-            tx = pred[..., 0]  # [B, 3, H, W]
-            ty = pred[..., 1]
-            tw = pred[..., 2]
-            th = pred[..., 3]
-
-            # YOLOv8 风格解码
-            bx = (tx.sigmoid() * 2 - 0.5 + grid_x) * stride
-            by = (ty.sigmoid() * 2 - 0.5 + grid_y) * stride
-            bw = anchor[:, 0].view(1, 3, 1, 1) * (tw.sigmoid() * 2) ** 2
-            bh = anchor[:, 1].view(1, 3, 1, 1) * (th.sigmoid() * 2) ** 2
-
-            # 转为中心点 + 宽高 -> x1, y1, x2, y2
-            x1 = bx - bw / 2
-            y1 = by - bh / 2
-            x2 = bx + bw / 2
-            y2 = by + bh / 2
-
-            # 置信度和类别分数
-            obj_conf = pred[..., 4].sigmoid()  # [B, 3, H, W]
-            cls_scores = pred[..., 5:].sigmoid()  # [B, 3, H, W, num_classes]
-
-            # 合并分数: obj * cls_max
-            cls_max, cls_id = cls_scores.max(dim=-1)  # [B, 3, H, W]
-            score = obj_conf * cls_max  # [B, 3, H, W]
-
-            # 展平
-            boxes = torch.stack([x1, y1, x2, y2], dim=-1)  # [B, 3, H, W, 4]
-            boxes = boxes.reshape(B, -1, 4)[0]  # [N, 4]
-            score = score.reshape(B, -1)[0]  # [N]
-            cls_id = cls_id.reshape(B, -1)[0]  # [N]
-
-            all_boxes.append(boxes)
-            all_scores.append(score)
-            all_class_ids.append(cls_id)
-
-        # 合并所有尺度
-        all_boxes = torch.cat(all_boxes, dim=0)
-        all_scores = torch.cat(all_scores, dim=0)
-        all_class_ids = torch.cat(all_class_ids, dim=0)
-
-        return all_boxes, all_scores, all_class_ids
-
-    def _nms(self, boxes, scores, class_ids, conf_thres=0.25, iou_thres=0.45):
-        """
-        非极大值抑制 (NMS)
-
-        Args:
-            boxes: (N, 4) [x1, y1, x2, y2]
-            scores: (N,)
-            class_ids: (N,)
-            conf_thres: 置信度阈值
-            iou_thres: IoU 阈值
-
-        Returns:
-            detections: list of [x1, y1, x2, y2, score, class_id]
-        """
-        # 过滤低置信度
-        mask = scores > conf_thres
-        boxes = boxes[mask]
-        scores = scores[mask]
-        class_ids = class_ids[mask]
-
-        if boxes.numel() == 0:
-            return []
-
-        # 按类别分别做 NMS
-        detections = []
-        unique_classes = class_ids.unique()
-
-        for cls_id in unique_classes:
-            cls_mask = class_ids == cls_id
-            cls_boxes = boxes[cls_mask]
-            cls_scores = scores[cls_mask]
-
-            # 按分数排序
-            sorted_idx = torch.argsort(cls_scores, descending=True)
-            cls_boxes = cls_boxes[sorted_idx]
-            cls_scores = cls_scores[sorted_idx]
-
-            keep = []
-            while cls_boxes.shape[0] > 0:
-                keep.append(0)
-                if cls_boxes.shape[0] == 1:
-                    break
-
-                # 计算 IoU
-                x1 = torch.max(cls_boxes[0, 0], cls_boxes[1:, 0])
-                y1 = torch.max(cls_boxes[0, 1], cls_boxes[1:, 1])
-                x2 = torch.min(cls_boxes[0, 2], cls_boxes[1:, 2])
-                y2 = torch.min(cls_boxes[0, 3], cls_boxes[1:, 3])
-
-                inter = (x2 - x1).clamp(min=0) * (y2 - y1).clamp(min=0)
-                area1 = (cls_boxes[0, 2] - cls_boxes[0, 0]) * (cls_boxes[0, 3] - cls_boxes[0, 1])
-                area2 = (cls_boxes[1:, 2] - cls_boxes[1:, 0]) * (cls_boxes[1:, 3] - cls_boxes[1:, 1])
-                iou = inter / (area1 + area2 - inter + 1e-6)
-
-                # 过滤重叠框
-                cls_boxes = cls_boxes[1:][iou < iou_thres]
-                cls_scores = cls_scores[1:][iou < iou_thres]
-
-            for idx in keep:
-                box = cls_boxes[idx].cpu().tolist()
-                score = cls_scores[idx].cpu().item()
-                detections.append(box + [score, cls_id.cpu().item()])
-
-        return detections
-
-    def detect(self, image, conf_thres=0.25, iou_thres=0.45):
+    def detect(self, image, conf_thres=0.25, iou_thres=0.45, max_det=100):
         """
         对图片进行目标检测
 
@@ -267,55 +116,46 @@ class Detector:
             image: numpy array (H, W, 3) BGR 图片
             conf_thres: 置信度阈值
             iou_thres: NMS IoU 阈值
+            max_det: 最大检测数量
 
         Returns:
             detections: list of [x1, y1, x2, y2, score, class_id]
-            image_with_boxes: 绘制了检测框的图片 (numpy array)
         """
-        # 预处理
-        image_tensor, (orig_h, orig_w), (scale, pad_x, pad_y) = self.preprocess(image)
-        image_tensor = image_tensor.to(self.device)
+        # 转换为 RGB（ultralytics 需要 RGB）
+        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
-        # 推理
-        with torch.no_grad():
-            predictions = self.model(image_tensor)
+        # 运行检测
+        results = self.model(
+            image_rgb,
+            conf=conf_thres,
+            iou=iou_thres,
+            max_det=max_det,
+            verbose=False,
+        )
 
-        # 解码
-        boxes, scores, class_ids = self._decode_outputs(predictions)
-
-        # NMS
-        detections_416 = self._nms(boxes, scores, class_ids, conf_thres, iou_thres)
-
-        # 将检测结果映射回原始图片坐标
+        # 解析结果
         detections = []
-        for det in detections_416:
-            x1, y1, x2, y2, score, cls_id = det
+        if results and len(results) > 0:
+            result = results[0]
+            if result.boxes is not None and len(result.boxes) > 0:
+                boxes = result.boxes.xyxy.cpu().numpy()       # [N, 4] x1,y1,x2,y2
+                scores = result.boxes.conf.cpu().numpy()      # [N]
+                class_ids = result.boxes.cls.cpu().numpy().astype(int)  # [N]
 
-            # 从 padded 416x416 映射回原始图片
-            x1 = (x1 - pad_x) / scale
-            y1 = (y1 - pad_y) / scale
-            x2 = (x2 - pad_x) / scale
-            y2 = (y2 - pad_y) / scale
+                for box, score, cls_id in zip(boxes, scores, class_ids):
+                    x1, y1, x2, y2 = box.tolist()
+                    detections.append([x1, y1, x2, y2, float(score), int(cls_id)])
 
-            # 裁剪到图片边界
-            x1 = max(0, min(x1, orig_w))
-            y1 = max(0, min(y1, orig_h))
-            x2 = max(0, min(x2, orig_w))
-            y2 = max(0, min(y2, orig_h))
-
-            if x2 > x1 and y2 > y1:
-                detections.append([x1, y1, x2, y2, score, int(cls_id)])
-
-        # 按置信度降序排列
-        detections.sort(key=lambda x: x[4], reverse=True)
+                # 按置信度降序
+                detections.sort(key=lambda x: x[4], reverse=True)
 
         return detections
 
-    def get_class_name(self, class_id):
+    def get_class_name(self, class_id, lang='zh'):
         """获取类别名称"""
-        if 0 <= class_id < len(self.class_names):
-            return self.class_names[class_id]
-        return f"unknown_{class_id}"
+        if lang == 'zh':
+            return self.class_names_zh.get(class_id, f"未知_{class_id}")
+        return self.class_names_en.get(class_id, f"unknown_{class_id}")
 
     def get_color(self, class_id):
         """获取类别对应颜色"""

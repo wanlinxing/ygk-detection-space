@@ -51,10 +51,11 @@ ENV/
 
 # Office 临时文件
 ~$*
-~*.pptx
-~*.docx
+*.pptx
+*.docx
 
-# 模型权重文件 - 使用 Git LFS 管理
-# 单独 unignore（!）规则放在最后
-!model_weights.pt
-!comparison_results.png
+# Claude Code
+.claude/
+
+# 下载的模型文件（运行时自动下载）
+models/
