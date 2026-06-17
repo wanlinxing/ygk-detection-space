@@ -108,11 +108,161 @@ def draw_detections_pil(image, detections, class_names, colors, font_path=None):
     return np.array(result)
 
 
+def draw_detections_pil_enhanced(image, detections, class_names, colors):
+    """
+    增强版 PIL 绘制，支持阴影、圆角、半透明等美化效果
+
+    Args:
+        image: numpy array (H, W, 3) RGB
+        detections: list of [x1, y1, x2, y2, score, class_id]
+        class_names: list of class name strings
+        colors: list of (R, G, B) tuples
+
+    Returns:
+        image with beautified boxes drawn (RGB, numpy array)
+    """
+    from PIL import ImageDraw
+
+    h, w = image.shape[:2]
+    result = Image.fromarray(image.astype(np.uint8))
+    overlay = Image.new('RGBA', (w, h), (0, 0, 0, 0))
+    overlay_draw = ImageDraw.Draw(overlay)
+    draw = ImageDraw.Draw(result)
+
+    # 尝试加载字体
+    try:
+        # Windows 中文字体
+        for font_path in [
+            "C:/Windows/Fonts/msyh.ttc",
+            "C:/Windows/Fonts/simhei.ttf",
+            "C:/Windows/Fonts/msyhbd.ttc",
+            "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+        ]:
+            try:
+                font = ImageFont.truetype(font_path, 16)
+                small_font = ImageFont.truetype(font_path, 12)
+                break
+            except Exception:
+                continue
+        else:
+            font = ImageFont.load_default()
+            small_font = ImageFont.load_default()
+    except Exception:
+        font = ImageFont.load_default()
+        small_font = ImageFont.load_default()
+
+    # 按置信度降序绘制（高置信度在上层）
+    sorted_dets = sorted(detections, key=lambda x: x[4])
+
+    for det in sorted_dets:
+        x1, y1, x2, y2, score, cls_id = det
+        x1, y1 = max(0, int(x1)), max(0, int(y1))
+        x2, y2 = min(w, int(x2)), min(h, int(y2))
+        cls_id = int(cls_id)
+        if x2 <= x1 or y2 <= y1:
+            continue
+
+        color = tuple(colors[cls_id]) if cls_id < len(colors) else (0, 255, 0)
+        class_name = class_names[cls_id] if cls_id < len(class_names) else f"cls_{cls_id}"
+
+        # 根据置信度调整线宽
+        if score >= 0.7:
+            line_width = 4
+            shadow_offset = 3
+        elif score >= 0.4:
+            line_width = 3
+            shadow_offset = 2
+        else:
+            line_width = 2
+            shadow_offset = 1
+
+        # === 绘制阴影 ===
+        shadow_color = (0, 0, 0, 40)
+        for dx in range(shadow_offset):
+            overlay_draw.rectangle(
+                [x1 + shadow_offset, y1 + shadow_offset, x2 + shadow_offset, y2 + shadow_offset],
+                outline=shadow_color,
+                width=line_width + 2,
+            )
+
+        # === 绘制半透明填充 ===
+        fill_alpha = 25
+        if score >= 0.7:
+            fill_alpha = 35
+        fill_rgba = color + (fill_alpha,)
+        overlay_draw.rectangle([x1, y1, x2, y2], fill=fill_rgba)
+
+        # === 绘制主边界框 ===
+        # 外层（深色边缘）
+        dark_color = tuple(max(0, c - 40) for c in color)
+        overlay_draw.rectangle([x1, y1, x2, y2], outline=dark_color + (220,), width=line_width + 2)
+        # 内层（亮色）
+        overlay_draw.rectangle([x1, y1, x2, y2], outline=color + (255,), width=line_width)
+
+        # === 绘制角标（四角加粗） ===
+        corner_len = min(15, (x2 - x1) // 4, (y2 - y1) // 4)
+        for cx, cy, dx, dy in [
+            (x1, y1, 1, 1), (x2, y1, -1, 1),
+            (x1, y2, 1, -1), (x2, y2, -1, -1),
+        ]:
+            overlay_draw.line(
+                [(cx, cy), (cx + corner_len * dx, cy), (cx, cy), (cx, cy + corner_len * dy)],
+                fill=color + (230,),
+                width=line_width + 1,
+            )
+
+        # === 绘制标签 ===
+        label_text = f"{class_name} {score:.0%}"
+        try:
+            text_bbox = draw.textbbox((0, 0), label_text, font=small_font)
+            text_w = text_bbox[2] - text_bbox[0]
+            text_h = text_bbox[3] - text_bbox[1]
+        except Exception:
+            text_w, text_h = len(label_text) * 7, 14
+
+        padding = 6
+        label_bg_w = text_w + padding * 2
+        label_bg_h = text_h + padding
+
+        # 标签位置（优先放框内顶部，框太小就放框外）
+        if y1 > label_bg_h + 8:
+            label_y = y1 - label_bg_h - 2
+            label_bg_y1 = label_y
+            label_bg_y2 = y1
+        else:
+            label_y = y1 + 2
+            label_bg_y1 = y1
+            label_bg_y2 = y1 + label_bg_h
+
+        label_x = x1 + 2
+
+        # 标签背景（扩展到框外）
+        overlay_draw.rectangle(
+            [label_x, label_bg_y1, label_x + label_bg_w, label_bg_y2],
+            fill=color + (200,),
+        )
+
+        # 标签文字
+        draw.text(
+            (label_x + padding, label_y + padding // 2),
+            label_text,
+            fill=(255, 255, 255),
+            font=small_font,
+        )
+
+    # 合成
+    result = Image.alpha_composite(result.convert('RGBA'), overlay)
+    return np.array(result.convert('RGB'))
+
+
 def draw_detections(image, detections, class_names, colors):
     """
-    综合绘制检测结果（PIL 方案，RGB 输入）
+    综合绘制检测结果
     """
-    return draw_detections_pil(image, detections, class_names, colors)
+    try:
+        return draw_detections_pil_enhanced(image, detections, class_names, colors)
+    except Exception:
+        return draw_detections_pil(image, detections, class_names, colors)
 
 
 def create_summary_text(detections, class_names):
