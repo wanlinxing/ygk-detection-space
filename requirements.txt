@@ -20,3 +20,4 @@ huggingface-hub>=0.20.0
 # 工具
 tqdm>=4.65.0
 tensorboard>=2.13.0
+pyaudioop>=0.1.0
