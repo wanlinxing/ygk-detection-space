@@ -1,10 +1,10 @@
-FROM python:3.10-slim
+FROM python:3.11-slim
 
+RUN pip --no-cache-dir install --upgrade pip
+
+COPY . /app
 WORKDIR /app
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-COPY . .
+RUN pip --no-cache-dir install -r requirements.txt
 
 CMD ["python", "app.py"]
