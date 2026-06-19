@@ -10,8 +10,8 @@ import cv2
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from utils.detector import Detector
-from utils.visualize import draw_detections as draw_boxes
+from detector import Detector
+from visualize import draw_detections as draw_boxes
 
 # ============================================================
 # 全局配置
