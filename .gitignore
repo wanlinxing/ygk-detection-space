@@ -35,10 +35,11 @@ data/
 *.tar
 *.zip
 
-# 训练日志和临时文件
-runs/train/tb_logs/
+# 训练输出和临时文件
+runs/
 *.log
 logs/
+model_weights.pt
 
 # 系统文件
 .DS_Store
