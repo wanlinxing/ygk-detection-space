@@ -582,17 +582,6 @@ def create_ui():
                         elem_classes="detection-summary",
                     )
 
-        # 示例图片
-        with gr.Accordion("📸 示例图片（点击加载测试）", open=False):
-            gr.Examples(
-                examples=[
-                    ["https://ultralytics.com/images/bus.jpg", 0.25, 0.45],
-                    ["https://ultralytics.com/images/zidane.jpg", 0.25, 0.45],
-                ],
-                inputs=[input_image, conf_slider, iou_slider],
-                label=None,
-            )
-
         # 页脚
         gr.HTML(FOOTER_HTML)
 
